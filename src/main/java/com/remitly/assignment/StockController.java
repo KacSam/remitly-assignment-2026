@@ -1,6 +1,8 @@
 package com.remitly.assignment;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,22 +15,32 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/stocks")
 class StockController {
 
-    private volatile StocksState state = new StocksState(List.of());
+    private final MarketService marketService;
+
+    StockController(MarketService marketService) {
+        this.marketService = marketService;
+    }
 
     @PostMapping
     ResponseEntity<Void> setStocks(@RequestBody StocksState request) {
-        if (request == null || request.stocks() == null) {
-            this.state = new StocksState(List.of());
-        } else {
-            this.state = request;
+        Map<String, Double> bankStocks = new LinkedHashMap<>();
+        if (request != null && request.stocks() != null) {
+            for (StockItem item : request.stocks()) {
+                bankStocks.put(item.name(), item.quantity());
+            }
         }
+        marketService.setBankStocks(bankStocks);
 
         return ResponseEntity.ok().build();
     }
 
     @GetMapping
     StocksState getStocks() {
-        return state;
+        List<StockItem> stocks = marketService.getBankStocks().entrySet().stream()
+                .map(entry -> new StockItem(entry.getKey(), entry.getValue()))
+                .toList();
+
+        return new StocksState(stocks);
     }
 
     record StocksState(List<StockItem> stocks) {
