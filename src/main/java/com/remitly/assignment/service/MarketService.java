@@ -1,4 +1,4 @@
-package com.remitly.assignment;
+package com.remitly.assignment.service;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -6,9 +6,9 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 @Service
-class MarketService {
+public class MarketService {
 
-    enum OperationStatus {
+    public enum OperationStatus {
         SUCCESS,
         UNKNOWN_STOCK,
         NO_BANK_STOCK,
@@ -18,18 +18,18 @@ class MarketService {
     private final Map<String, Double> bankStocks = new LinkedHashMap<>();
     private final Map<String, Map<String, Double>> wallets = new LinkedHashMap<>();
 
-    synchronized void setBankStocks(Map<String, Double> newBankState) {
+    public synchronized void setBankStocks(Map<String, Double> newBankState) {
         bankStocks.clear();
         if (newBankState != null) {
             bankStocks.putAll(newBankState);
         }
     }
 
-    synchronized Map<String, Double> getBankStocks() {
+    public synchronized Map<String, Double> getBankStocks() {
         return new LinkedHashMap<>(bankStocks);
     }
 
-    synchronized OperationStatus buy(String walletId, String stockName) {
+    public synchronized OperationStatus buy(String walletId, String stockName) {
         if (!bankStocks.containsKey(stockName)) {
             return OperationStatus.UNKNOWN_STOCK;
         }
@@ -47,7 +47,7 @@ class MarketService {
         return OperationStatus.SUCCESS;
     }
 
-    synchronized OperationStatus sell(String walletId, String stockName) {
+    public synchronized OperationStatus sell(String walletId, String stockName) {
         if (!bankStocks.containsKey(stockName)) {
             return OperationStatus.UNKNOWN_STOCK;
         }
@@ -70,7 +70,7 @@ class MarketService {
         return OperationStatus.SUCCESS;
     }
 
-    synchronized Map<String, Double> getWalletStocks(String walletId) {
+    public synchronized Map<String, Double> getWalletStocks(String walletId) {
         Map<String, Double> wallet = wallets.get(walletId);
         if (wallet == null) {
             return new LinkedHashMap<>();
@@ -79,7 +79,7 @@ class MarketService {
         return new LinkedHashMap<>(wallet);
     }
 
-    synchronized double getWalletStockQuantity(String walletId, String stockName) {
+    public synchronized double getWalletStockQuantity(String walletId, String stockName) {
         Map<String, Double> wallet = wallets.get(walletId);
         if (wallet == null) {
             return 0.0;

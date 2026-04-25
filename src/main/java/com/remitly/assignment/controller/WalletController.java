@@ -1,4 +1,4 @@
-package com.remitly.assignment;
+package com.remitly.assignment.controller;
 
 import java.util.List;
 
@@ -11,13 +11,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.remitly.assignment.service.MarketService;
+
 @RestController
 @RequestMapping("/wallets")
-class WalletController {
+public class WalletController {
 
     private final MarketService marketService;
 
-    WalletController(MarketService marketService) {
+    public WalletController(MarketService marketService) {
         this.marketService = marketService;
     }
 
