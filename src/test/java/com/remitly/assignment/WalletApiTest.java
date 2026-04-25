@@ -92,6 +92,109 @@ class WalletApiTest {
                 .toBodilessEntity()).isInstanceOf(HttpClientErrorException.NotFound.class);
     }
 
+    @Test
+    void shouldReturn400WhenBuyingStockThatIsUnavailableInBank() {
+        RestClient client = createClient();
+
+        setBankState(client, """
+                {
+                    "stocks": [
+                        {"name": "AAPL", "quantity": 0.0}
+                    ]
+                }
+                """);
+
+        assertThatThrownBy(() -> client.post()
+                .uri("/wallets/w3/stocks/AAPL")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {
+                            "type": "buy"
+                        }
+                        """)
+                .retrieve()
+                .toBodilessEntity()).isInstanceOf(HttpClientErrorException.BadRequest.class);
+    }
+
+    @Test
+    void shouldReturn400WhenSellingStockNotOwnedByWallet() {
+        RestClient client = createClient();
+
+        setBankState(client, """
+                {
+                    "stocks": [
+                        {"name": "AAPL", "quantity": 2.0}
+                    ]
+                }
+                """);
+
+        assertThatThrownBy(() -> client.post()
+                .uri("/wallets/w4/stocks/AAPL")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {
+                            "type": "sell"
+                        }
+                        """)
+                .retrieve()
+                .toBodilessEntity()).isInstanceOf(HttpClientErrorException.BadRequest.class);
+    }
+
+    @Test
+    void shouldSellStockFromWalletAndIncreaseBankQuantity() {
+        RestClient client = createClient();
+
+        setBankState(client, """
+                {
+                    "stocks": [
+                        {"name": "AAPL", "quantity": 1.0}
+                    ]
+                }
+                """);
+
+        ResponseEntity<Void> buyResponse = client.post()
+                .uri("/wallets/w5/stocks/AAPL")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {
+                            "type": "buy"
+                        }
+                        """)
+                .retrieve()
+                .toBodilessEntity();
+
+        assertThat(buyResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<Void> sellResponse = client.post()
+                .uri("/wallets/w5/stocks/AAPL")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {
+                            "type": "sell"
+                        }
+                        """)
+                .retrieve()
+                .toBodilessEntity();
+
+        assertThat(sellResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<String> walletStockResponse = client.get()
+                .uri("/wallets/w5/stocks/AAPL")
+                .retrieve()
+                .toEntity(String.class);
+
+        assertThat(walletStockResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(walletStockResponse.getBody()).isEqualTo("0.0");
+
+        ResponseEntity<String> bankResponse = client.get()
+                .uri("/stocks")
+                .retrieve()
+                .toEntity(String.class);
+
+        assertThat(bankResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(bankResponse.getBody()).contains("AAPL", "1.0");
+    }
+
     private RestClient createClient() {
         return RestClient.builder()
                 .baseUrl("http://localhost:" + port)
