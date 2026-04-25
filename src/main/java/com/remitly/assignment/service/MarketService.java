@@ -1,12 +1,16 @@
 package com.remitly.assignment.service;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Service;
 
 @Service
 public class MarketService {
+
+    private static final int MAX_AUDIT_LOG_SIZE = 10_000;
 
     public enum OperationStatus {
         SUCCESS,
@@ -17,6 +21,7 @@ public class MarketService {
 
     private final Map<String, Double> bankStocks = new LinkedHashMap<>();
     private final Map<String, Map<String, Double>> wallets = new LinkedHashMap<>();
+    private final List<AuditLogEntry> auditLog = new ArrayList<>();
 
     public synchronized void setBankStocks(Map<String, Double> newBankState) {
         bankStocks.clear();
@@ -88,7 +93,22 @@ public class MarketService {
         return wallet.getOrDefault(stockName, 0.0);
     }
 
+    public synchronized void appendAuditLog(String type, String walletId, String stockName) {
+        if (auditLog.size() >= MAX_AUDIT_LOG_SIZE) {
+            auditLog.removeFirst();
+        }
+
+        auditLog.add(new AuditLogEntry(type, walletId, stockName));
+    }
+
+    public synchronized List<AuditLogEntry> getAuditLog() {
+        return new ArrayList<>(auditLog);
+    }
+
     private Map<String, Double> getOrCreateWallet(String walletId) {
         return wallets.computeIfAbsent(walletId, ignored -> new LinkedHashMap<>());
+    }
+
+    public record AuditLogEntry(String type, String walletId, String stockName) {
     }
 }

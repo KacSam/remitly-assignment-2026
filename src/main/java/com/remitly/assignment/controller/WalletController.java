@@ -45,6 +45,7 @@ public class WalletController {
         }
 
         if (status == MarketService.OperationStatus.SUCCESS) {
+            marketService.appendAuditLog(operationType, walletId, stockName);
             return ResponseEntity.ok().build();
         }
 
