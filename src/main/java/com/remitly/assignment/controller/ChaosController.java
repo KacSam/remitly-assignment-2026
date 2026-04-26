@@ -12,17 +12,24 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChaosController {
 
     private final ConfigurableApplicationContext applicationContext;
+    private final boolean shutdownEnabled;
     private final long shutdownDelayMs;
 
     public ChaosController(
             ConfigurableApplicationContext applicationContext,
+            @Value("${chaos.shutdown-enabled:true}") boolean shutdownEnabled,
             @Value("${chaos.shutdown-delay-ms:300}") long shutdownDelayMs) {
         this.applicationContext = applicationContext;
+        this.shutdownEnabled = shutdownEnabled;
         this.shutdownDelayMs = shutdownDelayMs;
     }
 
     @PostMapping
     ResponseEntity<Void> triggerChaos() {
+        if (!shutdownEnabled) {
+            return ResponseEntity.ok().build();
+        }
+
         Thread shutdownThread = new Thread(this::shutdownAfterDelay, "chaos-shutdown-thread");
         shutdownThread.setDaemon(true);
         shutdownThread.start();
