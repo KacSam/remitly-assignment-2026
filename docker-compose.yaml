@@ -1,17 +1,71 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: stock_market_db
     environment:
       POSTGRES_DB: stockmarket
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
-    ports:
-      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d stockmarket"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+
+  app1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/stockmarket
+      SPRING_DATASOURCE_USERNAME: user
+      SPRING_DATASOURCE_PASSWORD: password
+      SERVER_PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  app2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/stockmarket
+      SPRING_DATASOURCE_USERNAME: user
+      SPRING_DATASOURCE_PASSWORD: password
+      SERVER_PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  gateway:
+    image: nginx:1.27-alpine
+    depends_on:
+      - app1
+      - app2
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    volumes:
+      - ./ops/nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    networks:
+      - app_network
 
 volumes:
   postgres_data:
+
+networks:
+  app_network:
