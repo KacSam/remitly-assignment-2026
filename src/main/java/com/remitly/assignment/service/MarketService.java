@@ -1,16 +1,43 @@
 package com.remitly.assignment.service;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+
+import com.remitly.assignment.persistence.entity.AuditLogEntity;
+import com.remitly.assignment.persistence.entity.BankStockEntity;
+import com.remitly.assignment.persistence.entity.WalletEntity;
+import com.remitly.assignment.persistence.entity.WalletStockEntity;
+import com.remitly.assignment.persistence.entity.WalletStockId;
+import com.remitly.assignment.persistence.repository.AuditLogRepository;
+import com.remitly.assignment.persistence.repository.BankStockRepository;
+import com.remitly.assignment.persistence.repository.WalletRepository;
+import com.remitly.assignment.persistence.repository.WalletStockRepository;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class MarketService {
 
     private static final int MAX_AUDIT_LOG_SIZE = 10_000;
+
+    private final BankStockRepository bankStockRepository;
+    private final WalletRepository walletRepository;
+    private final WalletStockRepository walletStockRepository;
+    private final AuditLogRepository auditLogRepository;
+
+    public MarketService(
+            BankStockRepository bankStockRepository,
+            WalletRepository walletRepository,
+            WalletStockRepository walletStockRepository,
+            AuditLogRepository auditLogRepository) {
+        this.bankStockRepository = bankStockRepository;
+        this.walletRepository = walletRepository;
+        this.walletStockRepository = walletStockRepository;
+        this.auditLogRepository = auditLogRepository;
+    }
 
     public enum OperationStatus {
         SUCCESS,
@@ -19,94 +46,109 @@ public class MarketService {
         NO_WALLET_STOCK
     }
 
-    private final Map<String, Double> bankStocks = new LinkedHashMap<>();
-    private final Map<String, Map<String, Double>> wallets = new LinkedHashMap<>();
-    private final List<AuditLogEntry> auditLog = new ArrayList<>();
+    @Transactional
+    public void setBankStocks(Map<String, Double> newBankState) {
+        bankStockRepository.deleteAllInBatch();
+        if (newBankState == null) {
+            return;
+        }
 
-    public synchronized void setBankStocks(Map<String, Double> newBankState) {
-        bankStocks.clear();
-        if (newBankState != null) {
-            bankStocks.putAll(newBankState);
+        for (Map.Entry<String, Double> entry : newBankState.entrySet()) {
+            bankStockRepository.save(new BankStockEntity(entry.getKey(), entry.getValue()));
         }
     }
 
-    public synchronized Map<String, Double> getBankStocks() {
-        return new LinkedHashMap<>(bankStocks);
+    @Transactional(readOnly = true)
+    public Map<String, Double> getBankStocks() {
+        Map<String, Double> response = new LinkedHashMap<>();
+        for (BankStockEntity stock : bankStockRepository.findAllByOrderByNameAsc()) {
+            response.put(stock.getName(), stock.getQuantity());
+        }
+        return response;
     }
 
-    public synchronized OperationStatus buy(String walletId, String stockName) {
-        if (!bankStocks.containsKey(stockName)) {
+    @Transactional
+    public OperationStatus buy(String walletId, String stockName) {
+        Optional<BankStockEntity> bankStockCandidate = bankStockRepository.findByNameForUpdate(stockName);
+        if (bankStockCandidate.isEmpty()) {
             return OperationStatus.UNKNOWN_STOCK;
         }
 
-        double bankQuantity = bankStocks.getOrDefault(stockName, 0.0);
-        if (bankQuantity < 1.0) {
+        BankStockEntity bankStock = bankStockCandidate.get();
+        if (bankStock.getQuantity() < 1.0) {
             return OperationStatus.NO_BANK_STOCK;
         }
 
-        Map<String, Double> wallet = getOrCreateWallet(walletId);
-        double walletQuantity = wallet.getOrDefault(stockName, 0.0);
-        wallet.put(stockName, walletQuantity + 1.0);
-        bankStocks.put(stockName, bankQuantity - 1.0);
+        WalletEntity wallet = walletRepository.findById(walletId)
+                .orElseGet(() -> walletRepository.save(new WalletEntity(walletId)));
 
+        Optional<WalletStockEntity> walletStockCandidate = walletStockRepository.findByWalletAndStockForUpdate(walletId, stockName);
+        if (walletStockCandidate.isPresent()) {
+            WalletStockEntity walletStock = walletStockCandidate.get();
+            walletStock.setQuantity(walletStock.getQuantity() + 1.0);
+        } else {
+            walletStockRepository.save(new WalletStockEntity(new WalletStockId(walletId, stockName), wallet, 1.0));
+        }
+
+        bankStock.setQuantity(bankStock.getQuantity() - 1.0);
         return OperationStatus.SUCCESS;
     }
 
-    public synchronized OperationStatus sell(String walletId, String stockName) {
-        if (!bankStocks.containsKey(stockName)) {
+    @Transactional
+    public OperationStatus sell(String walletId, String stockName) {
+        Optional<BankStockEntity> bankStockCandidate = bankStockRepository.findByNameForUpdate(stockName);
+        if (bankStockCandidate.isEmpty()) {
             return OperationStatus.UNKNOWN_STOCK;
         }
 
-        Map<String, Double> wallet = getOrCreateWallet(walletId);
-        double walletQuantity = wallet.getOrDefault(stockName, 0.0);
-        if (walletQuantity < 1.0) {
+        Optional<WalletStockEntity> walletStockCandidate = walletStockRepository.findByWalletAndStockForUpdate(walletId, stockName);
+        if (walletStockCandidate.isEmpty() || walletStockCandidate.get().getQuantity() < 1.0) {
             return OperationStatus.NO_WALLET_STOCK;
         }
 
-        if (walletQuantity == 1.0) {
-            wallet.remove(stockName);
+        WalletStockEntity walletStock = walletStockCandidate.get();
+        if (walletStock.getQuantity() == 1.0) {
+            walletStockRepository.delete(walletStock);
         } else {
-            wallet.put(stockName, walletQuantity - 1.0);
+            walletStock.setQuantity(walletStock.getQuantity() - 1.0);
         }
 
-        double bankQuantity = bankStocks.getOrDefault(stockName, 0.0);
-        bankStocks.put(stockName, bankQuantity + 1.0);
-
+        BankStockEntity bankStock = bankStockCandidate.get();
+        bankStock.setQuantity(bankStock.getQuantity() + 1.0);
         return OperationStatus.SUCCESS;
     }
 
-    public synchronized Map<String, Double> getWalletStocks(String walletId) {
-        Map<String, Double> wallet = wallets.get(walletId);
-        if (wallet == null) {
-            return new LinkedHashMap<>();
+    @Transactional(readOnly = true)
+    public Map<String, Double> getWalletStocks(String walletId) {
+        Map<String, Double> response = new LinkedHashMap<>();
+        for (WalletStockEntity stock : walletStockRepository.findAllByWalletIdOrderByStockName(walletId)) {
+            response.put(stock.getId().getStockName(), stock.getQuantity());
+        }
+        return response;
+    }
+
+    @Transactional(readOnly = true)
+    public double getWalletStockQuantity(String walletId, String stockName) {
+        return walletStockRepository.findById(new WalletStockId(walletId, stockName))
+                .map(WalletStockEntity::getQuantity)
+                .orElse(0.0);
+    }
+
+    @Transactional
+    public void appendAuditLog(String type, String walletId, String stockName) {
+        if (auditLogRepository.count() >= MAX_AUDIT_LOG_SIZE) {
+            auditLogRepository.findFirstByOrderByIdAsc()
+                    .ifPresent(oldestEntry -> auditLogRepository.deleteById(oldestEntry.getId()));
         }
 
-        return new LinkedHashMap<>(wallet);
+        auditLogRepository.save(new AuditLogEntity(type, walletId, stockName));
     }
 
-    public synchronized double getWalletStockQuantity(String walletId, String stockName) {
-        Map<String, Double> wallet = wallets.get(walletId);
-        if (wallet == null) {
-            return 0.0;
-        }
-
-        return wallet.getOrDefault(stockName, 0.0);
-    }
-
-    public synchronized void appendAuditLog(String type, String walletId, String stockName) {
-        if (auditLog.size() >= MAX_AUDIT_LOG_SIZE) {
-            auditLog.removeFirst();
-        }
-
-        auditLog.add(new AuditLogEntry(type, walletId, stockName));
-    }
-
-    public synchronized List<AuditLogEntry> getAuditLog() {
-        return new ArrayList<>(auditLog);
-    }
-
-    private Map<String, Double> getOrCreateWallet(String walletId) {
-        return wallets.computeIfAbsent(walletId, ignored -> new LinkedHashMap<>());
+    @Transactional(readOnly = true)
+    public List<AuditLogEntry> getAuditLog() {
+        return auditLogRepository.findAllByOrderByIdAsc().stream()
+                .map(logEntry -> new AuditLogEntry(logEntry.getType(), logEntry.getWalletId(), logEntry.getStockName()))
+                .toList();
     }
 
     public record AuditLogEntry(String type, String walletId, String stockName) {
